@@ -3,13 +3,22 @@ package main
 import (
 	"fmt"
 	"math/big"
+	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/MariusVanDerWijden/tx-fuzz/flags"
 	"github.com/MariusVanDerWijden/tx-fuzz/spammer"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/urfave/cli/v2"
+)
+
+var (
+	// Mutex to handle concurrent access
+	serverMutex sync.Mutex
+	running     bool
+	cancelFunc  func()
 )
 
 var airdropCommand = &cli.Command{
@@ -44,6 +53,74 @@ var createCommand = &cli.Command{
 		flags.CountFlag,
 		flags.RpcFlag,
 	},
+}
+
+var serverCommand = &cli.Command{
+	Name:   "server",
+	Usage:  "start a server",
+	Action: runServer,
+	Flags:  flags.SpamFlags,
+}
+
+func runServer(c *cli.Context) error {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/spam/start", func(w http.ResponseWriter, r *http.Request) {
+		serverMutex.Lock()
+		defer serverMutex.Unlock()
+
+		if running {
+			http.Error(w, "Spam already running", http.StatusConflict)
+			return
+		}
+
+		config, err := spammer.NewConfigFromContext(c)
+		if err != nil {
+			http.Error(w, "Invalid configuration: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		cancel := make(chan struct{})
+		cancelFunc = func() { close(cancel) }
+
+		go func() {
+			airdropValue := new(big.Int).Mul(big.NewInt(int64((1+config.N)*1000000)), big.NewInt(params.GWei))
+			err := spam(config, spammer.SendBasicTransactions, airdropValue)
+			if err != nil {
+				fmt.Println("Error running spam:", err)
+			}
+		}()
+		running = true
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Spam started"))
+	})
+
+	mux.HandleFunc("/spam/stop", func(w http.ResponseWriter, r *http.Request) {
+		serverMutex.Lock()
+		defer serverMutex.Unlock()
+
+		if !running {
+			http.Error(w, "No spam running", http.StatusBadRequest)
+			return
+		}
+
+		if cancelFunc != nil {
+			cancelFunc()
+			cancelFunc = nil
+		}
+		running = false
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Spam stopped"))
+	})
+
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("200 OK"))
+	})
+
+	serverAddr := ":8080" // Use a default port or read from flags if needed
+	fmt.Println("Starting server on", serverAddr)
+	return http.ListenAndServe(serverAddr, mux)
 }
 
 var unstuckCommand = &cli.Command{
