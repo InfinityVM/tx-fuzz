@@ -85,7 +85,7 @@ func runServer(c *cli.Context) error {
 
 		go func() {
 			airdropValue := new(big.Int).Mul(big.NewInt(int64((1+config.N)*1000000)), big.NewInt(params.GWei))
-			err := spam(config, spammer.SendBasicTransactions, airdropValue)
+			err := spam(config, spammer.SendBasicTransactions, airdropValue, cancel)
 			if err != nil {
 				fmt.Println("Error running spam:", err)
 			}
@@ -165,15 +165,24 @@ func runAirdrop(c *cli.Context) error {
 	return nil
 }
 
-func spam(config *spammer.Config, spamFn spammer.Spam, airdropValue *big.Int) error {
-	// Make sure the accounts are unstuck before sending any transactions
+func spam(config *spammer.Config, spamFn spammer.Spam, airdropValue *big.Int, cancel <-chan struct{}) error {
+	// Unstuck accounts before starting the spam process
 	spammer.Unstuck(config)
+
 	for {
-		if err := spammer.Airdrop(config, airdropValue); err != nil {
-			return err
+		select {
+		case <-cancel:
+			// Exit the loop when the cancel signal is received
+			fmt.Println("Spam process stopped")
+			return nil
+		default:
+			// Perform the spam logic if no cancel signal
+			if err := spammer.Airdrop(config, airdropValue); err != nil {
+				return err
+			}
+			spammer.SpamTransactions(config, spamFn)
+			time.Sleep(time.Duration(config.SlotTime) * time.Second)
 		}
-		spammer.SpamTransactions(config, spamFn)
-		time.Sleep(time.Duration(config.SlotTime) * time.Second)
 	}
 }
 
