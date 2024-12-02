@@ -190,7 +190,7 @@ func spam(config *spammer.Config, spamFn spammer.Spam, airdropValue *big.Int, ca
 			if err := spammer.Airdrop(config, airdropValue); err != nil {
 				return fmt.Errorf("failed to airdrop: %w", err)
 			}
-			if err := spamFn(config); err != nil {
+			if err := spamFn(config, config.GetFaucet(), nil); err != nil {
 				return fmt.Errorf("failed to spam transactions: %w", err)
 			}
 			time.Sleep(time.Duration(config.SlotTime) * time.Second)

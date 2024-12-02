@@ -75,7 +75,7 @@ func NewConfigFromContext(c *cli.Context) (*Config, error) {
 	}
 
 	// Setup faucet
-	faucet := crypto.ToECDSAUnsafe(common.FromHex(SK))
+	faucet := crypto.ToECDSAUnsafe(common.FromHex(string(SK)))
 	if sk := c.String(flags.SkFlag.Name); sk != "" {
 		faucet, err = crypto.ToECDSA(common.FromHex(sk))
 		if err != nil {
@@ -171,4 +171,8 @@ func readCorpusElements(path string) ([][]byte, error) {
 		corpus = append(corpus, b)
 	}
 	return corpus, nil
+}
+
+func (cfg Config) GetFaucet() *ecdsa.PrivateKey {
+	return cfg.faucet
 }
