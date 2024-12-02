@@ -81,7 +81,14 @@ func runServer(c *cli.Context) error {
 		}
 
 		cancel := make(chan struct{})
-		cancelFunc = func() { close(cancel) }
+		cancelFunc = func() {
+			select {
+			case <-cancel:
+				// Already closed
+			default:
+				close(cancel)
+			}
+		}
 
 		go func() {
 			airdropValue := new(big.Int).Mul(big.NewInt(int64((1+config.N)*1000000)), big.NewInt(params.GWei))
@@ -92,7 +99,7 @@ func runServer(c *cli.Context) error {
 		}()
 		running = true
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Spam started"))
+		_, _ = w.Write([]byte("Spam started"))
 	})
 
 	mux.HandleFunc("/spam/stop", func(w http.ResponseWriter, r *http.Request) {
@@ -110,12 +117,12 @@ func runServer(c *cli.Context) error {
 		}
 		running = false
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Spam stopped"))
+		_, _ = w.Write([]byte("Spam stopped"))
 	})
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("200 OK"))
+		_, _ = w.Write([]byte("200 OK"))
 	})
 
 	serverAddr := ":8080" // Use a default port or read from flags if needed
@@ -167,7 +174,9 @@ func runAirdrop(c *cli.Context) error {
 
 func spam(config *spammer.Config, spamFn spammer.Spam, airdropValue *big.Int, cancel <-chan struct{}) error {
 	// Unstuck accounts before starting the spam process
-	spammer.Unstuck(config)
+	if err := spammer.Unstuck(config); err != nil {
+		return fmt.Errorf("failed to unstuck accounts: %w", err)
+	}
 
 	for {
 		select {
@@ -178,31 +187,38 @@ func spam(config *spammer.Config, spamFn spammer.Spam, airdropValue *big.Int, ca
 		default:
 			// Perform the spam logic if no cancel signal
 			if err := spammer.Airdrop(config, airdropValue); err != nil {
-				return err
+				return fmt.Errorf("failed to airdrop: %w", err)
 			}
-			spammer.SpamTransactions(config, spamFn)
+			if err := spamFn(config); err != nil {
+				return fmt.Errorf("failed to spam transactions: %w", err)
+			}
 			time.Sleep(time.Duration(config.SlotTime) * time.Second)
 		}
 	}
 }
-
 func runBasicSpam(c *cli.Context) error {
 	config, err := spammer.NewConfigFromContext(c)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid config: %w", err)
 	}
 	airdropValue := new(big.Int).Mul(big.NewInt(int64((1+config.N)*1000000)), big.NewInt(params.GWei))
-	return spam(config, spammer.SendBasicTransactions, airdropValue)
+	cancel := make(chan struct{})
+	defer close(cancel)
+
+	return spam(config, spammer.SendBasicTransactions, airdropValue, cancel)
 }
 
 func runBlobSpam(c *cli.Context) error {
 	config, err := spammer.NewConfigFromContext(c)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid config: %w", err)
 	}
 	airdropValue := new(big.Int).Mul(big.NewInt(int64((1+config.N)*1000000)), big.NewInt(params.GWei))
-	airdropValue = airdropValue.Mul(airdropValue, big.NewInt(100))
-	return spam(config, spammer.SendBlobTransactions, airdropValue)
+	airdropValue.Mul(airdropValue, big.NewInt(100))
+	cancel := make(chan struct{})
+	defer close(cancel)
+
+	return spam(config, spammer.SendBlobTransactions, airdropValue, cancel)
 }
 
 func runCreate(c *cli.Context) error {
