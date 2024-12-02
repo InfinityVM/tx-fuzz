@@ -173,6 +173,7 @@ func runAirdrop(c *cli.Context) error {
 }
 
 func spam(config *spammer.Config, spamFn spammer.Spam, airdropValue *big.Int, cancel <-chan struct{}) error {
+
 	// Unstuck accounts before starting the spam process
 	if err := spammer.Unstuck(config); err != nil {
 		return fmt.Errorf("failed to unstuck accounts: %w", err)
@@ -196,6 +197,7 @@ func spam(config *spammer.Config, spamFn spammer.Spam, airdropValue *big.Int, ca
 		}
 	}
 }
+
 func runBasicSpam(c *cli.Context) error {
 	config, err := spammer.NewConfigFromContext(c)
 	if err != nil {

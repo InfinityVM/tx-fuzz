@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	crand "crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"math/rand"
@@ -68,8 +69,13 @@ func NewConfigFromContext(c *cli.Context) (*Config, error) {
 		return nil, err
 	}
 
+	SK, err := base64.StdEncoding.DecodeString(os.Getenv("TX_FUZZ_SK"))
+	if err != nil {
+		return nil, err
+	}
+
 	// Setup faucet
-	faucet := crypto.ToECDSAUnsafe(common.FromHex(txfuzz.SK))
+	faucet := crypto.ToECDSAUnsafe(common.FromHex(SK))
 	if sk := c.String(flags.SkFlag.Name); sk != "" {
 		faucet, err = crypto.ToECDSA(common.FromHex(sk))
 		if err != nil {
