@@ -122,7 +122,7 @@ func runServer(c *cli.Context) error {
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("200 OK"))
+		_, _ = w.Write([]byte("Healthy"))
 	})
 
 	serverAddr := ":8080" // Use a default port or read from flags if needed
@@ -147,6 +147,7 @@ func initApp() *cli.App {
 		blobSpamCommand,
 		createCommand,
 		unstuckCommand,
+		serverCommand,
 	}
 	return app
 }
@@ -173,7 +174,6 @@ func runAirdrop(c *cli.Context) error {
 }
 
 func spam(config *spammer.Config, spamFn spammer.Spam, airdropValue *big.Int, cancel <-chan struct{}) error {
-
 	// Unstuck accounts before starting the spam process
 	if err := spammer.Unstuck(config); err != nil {
 		return fmt.Errorf("failed to unstuck accounts: %w", err)
