@@ -21,8 +21,7 @@ import (
 )
 
 type Config struct {
-	backend *rpc.Client // connection to the rpc provider
-
+	backend    *rpc.Client         // connection to the rpc provider
 	N          uint64              // number of transactions send per account
 	faucet     *ecdsa.PrivateKey   // private key of the faucet account
 	keys       []*ecdsa.PrivateKey // private keys of accounts
