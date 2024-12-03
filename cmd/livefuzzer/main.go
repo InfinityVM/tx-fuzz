@@ -59,11 +59,15 @@ var serverCommand = &cli.Command{
 	Name:   "server",
 	Usage:  "start a server",
 	Action: runServer,
-	Flags:  flags.SpamFlags,
+	Flags:  flags.ServerFlags,
 }
 
 func runServer(c *cli.Context) error {
 	mux := http.NewServeMux()
+	config, err := spammer.NewConfigFromContext(c)
+	if err != nil {
+		return err
+	}
 
 	mux.HandleFunc("/spam/start", func(w http.ResponseWriter, r *http.Request) {
 		serverMutex.Lock()
@@ -71,12 +75,6 @@ func runServer(c *cli.Context) error {
 
 		if running {
 			http.Error(w, "Spam already running", http.StatusConflict)
-			return
-		}
-
-		config, err := spammer.NewConfigFromContext(c)
-		if err != nil {
-			http.Error(w, "Invalid configuration: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -125,7 +123,7 @@ func runServer(c *cli.Context) error {
 		_, _ = w.Write([]byte("Healthy"))
 	})
 
-	serverAddr := ":8080"
+	serverAddr := "0.0.0.0:" + config.ListenPort
 	fmt.Println("Starting server on", serverAddr)
 	return http.ListenAndServe(serverAddr, mux)
 }

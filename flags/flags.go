@@ -56,7 +56,7 @@ var (
 		Value: 12,
 	}
 
-	ServerPort = &cli.IntFlag{
+	ServerPortFlag = &cli.IntFlag{
 		Name:  "listen-port",
 		Usage: "Server listening port",
 		Value: 8080,
@@ -73,4 +73,6 @@ var (
 		GasLimitFlag,
 		SlotTimeFlag,
 	}
+
+	ServerFlags = append(SpamFlags, ServerPortFlag)
 )

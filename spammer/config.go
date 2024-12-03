@@ -29,6 +29,7 @@ type Config struct {
 	accessList bool                // whether to create accesslist transactions
 	gasLimit   uint64              // gas limit per transaction
 	SlotTime   uint64              // slot time in seconds
+	ListenPort string              // Server Listening Port
 
 	seed int64            // seed used for generating randomness
 	mut  *mutator.Mutator // Mutator based on the seed
@@ -139,6 +140,7 @@ func NewConfigFromContext(c *cli.Context) (*Config, error) {
 		corpus:     corpus,
 		mut:        mut,
 		SlotTime:   slotTime,
+		ListenPort: c.String(flags.ServerPortFlag.Name),
 	}, nil
 }
 
