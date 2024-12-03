@@ -125,7 +125,7 @@ func runServer(c *cli.Context) error {
 		_, _ = w.Write([]byte("Healthy"))
 	})
 
-	serverAddr := ":8080" // Use a default port or read from flags if needed
+	serverAddr := ":8080"
 	fmt.Println("Starting server on", serverAddr)
 	return http.ListenAndServe(serverAddr, mux)
 }
