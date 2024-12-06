@@ -27,11 +27,11 @@ type Config struct {
 	keys       []*ecdsa.PrivateKey // private keys of accounts
 	corpus     [][]byte            // optional corpus to use elements from
 	accessList bool                // whether to create accesslist transactions
-	gasLimit   uint64              // gas limit per transaction
+	GasLimit   uint64              // gas limit per transaction
 	SlotTime   uint64              // slot time in seconds
 	ListenPort string              // Server Listening Port
 
-	seed int64            // seed used for generating randomness
+	Seed int64            // seed used for generating randomness
 	mut  *mutator.Mutator // Mutator based on the seed
 }
 
@@ -55,8 +55,8 @@ func NewDefaultConfig(rpcAddr string, N uint64, accessList bool, rng *rand.Rand)
 		keys:       keys,
 		corpus:     [][]byte{},
 		accessList: accessList,
-		gasLimit:   30_000_000,
-		seed:       0,
+		GasLimit:   30_000_000,
+		Seed:       0,
 		mut:        mutator.NewMutator(rng),
 	}, nil
 }
@@ -134,8 +134,8 @@ func NewConfigFromContext(c *cli.Context) (*Config, error) {
 		N:          uint64(N),
 		faucet:     faucet,
 		accessList: !c.Bool(flags.NoALFlag.Name),
-		gasLimit:   uint64(gasLimit),
-		seed:       seed,
+		GasLimit:   uint64(gasLimit),
+		Seed:       seed,
 		keys:       keys,
 		corpus:     corpus,
 		mut:        mut,

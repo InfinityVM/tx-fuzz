@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -55,6 +56,13 @@ var createCommand = &cli.Command{
 	},
 }
 
+type SpamParams struct {
+	Seed     *int64  `json:"seed"`
+	TxCount  *uint64 `json:"txcount"`
+	GasLimit *uint64 `json:"gaslimit"`
+	SlotTime *uint64 `json:"slotTime"`
+}
+
 var serverCommand = &cli.Command{
 	Name:   "server",
 	Usage:  "start a server",
@@ -77,6 +85,13 @@ func runServer(c *cli.Context) error {
 			http.Error(w, "Spam already running", http.StatusConflict)
 			return
 		}
+
+		var spamParams SpamParams
+		if err := json.NewDecoder(r.Body).Decode(&spamParams); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		overrideConfigValues(spamParams, config)
 
 		cancel := make(chan struct{})
 		cancelFunc = func() {
@@ -126,6 +141,21 @@ func runServer(c *cli.Context) error {
 	serverAddr := "0.0.0.0:" + config.ListenPort
 	fmt.Println("Starting server on", serverAddr)
 	return http.ListenAndServe(serverAddr, mux)
+}
+
+func overrideConfigValues(spamParams SpamParams, config *spammer.Config) {
+	if spamParams.Seed != nil {
+		config.Seed = *spamParams.Seed
+	}
+	if spamParams.TxCount != nil {
+		config.N = *spamParams.TxCount
+	}
+	if spamParams.GasLimit != nil {
+		config.GasLimit = *spamParams.GasLimit
+	}
+	if spamParams.SlotTime != nil {
+		config.SlotTime = *spamParams.SlotTime
+	}
 }
 
 var unstuckCommand = &cli.Command{
