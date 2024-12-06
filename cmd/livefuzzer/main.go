@@ -1,15 +1,25 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/big"
+	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/MariusVanDerWijden/tx-fuzz/flags"
 	"github.com/MariusVanDerWijden/tx-fuzz/spammer"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/urfave/cli/v2"
+)
+
+var (
+	// Mutex to handle concurrent access
+	serverMutex sync.Mutex
+	running     bool
+	cancelFunc  func()
 )
 
 var airdropCommand = &cli.Command{
@@ -46,6 +56,108 @@ var createCommand = &cli.Command{
 	},
 }
 
+type SpamParams struct {
+	Seed     *int64  `json:"seed"`
+	TxCount  *uint64 `json:"txcount"`
+	GasLimit *uint64 `json:"gaslimit"`
+	SlotTime *uint64 `json:"slotTime"`
+}
+
+var serverCommand = &cli.Command{
+	Name:   "server",
+	Usage:  "start a server",
+	Action: runServer,
+	Flags:  flags.ServerFlags,
+}
+
+func runServer(c *cli.Context) error {
+	mux := http.NewServeMux()
+	config, err := spammer.NewConfigFromContext(c)
+	if err != nil {
+		return err
+	}
+
+	mux.HandleFunc("/spam/start", func(w http.ResponseWriter, r *http.Request) {
+		serverMutex.Lock()
+		defer serverMutex.Unlock()
+
+		if running {
+			http.Error(w, "Spam already running", http.StatusConflict)
+			return
+		}
+
+		var spamParams SpamParams
+		if err := json.NewDecoder(r.Body).Decode(&spamParams); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		overrideConfigValues(spamParams, config)
+
+		cancel := make(chan struct{})
+		cancelFunc = func() {
+			select {
+			case <-cancel:
+				// Already closed
+			default:
+				close(cancel)
+			}
+		}
+
+		go func() {
+			airdropValue := new(big.Int).Mul(big.NewInt(int64((1+config.N)*1000000)), big.NewInt(params.GWei))
+			err := spam(config, spammer.SendBasicTransactions, airdropValue, cancel)
+			if err != nil {
+				fmt.Println("Error running spam:", err)
+			}
+		}()
+		running = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Spam started"))
+	})
+
+	mux.HandleFunc("/spam/stop", func(w http.ResponseWriter, r *http.Request) {
+		serverMutex.Lock()
+		defer serverMutex.Unlock()
+
+		if !running {
+			http.Error(w, "No spam running", http.StatusBadRequest)
+			return
+		}
+
+		if cancelFunc != nil {
+			cancelFunc()
+			cancelFunc = nil
+		}
+		running = false
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Spam stopped"))
+	})
+
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Healthy"))
+	})
+
+	serverAddr := "0.0.0.0:" + config.ListenPort
+	fmt.Println("Starting server on", serverAddr)
+	return http.ListenAndServe(serverAddr, mux)
+}
+
+func overrideConfigValues(spamParams SpamParams, config *spammer.Config) {
+	if spamParams.Seed != nil {
+		config.Seed = *spamParams.Seed
+	}
+	if spamParams.TxCount != nil {
+		config.N = *spamParams.TxCount
+	}
+	if spamParams.GasLimit != nil {
+		config.GasLimit = *spamParams.GasLimit
+	}
+	if spamParams.SlotTime != nil {
+		config.SlotTime = *spamParams.SlotTime
+	}
+}
+
 var unstuckCommand = &cli.Command{
 	Name:   "unstuck",
 	Usage:  "Tries to unstuck an account",
@@ -63,6 +175,7 @@ func initApp() *cli.App {
 		blobSpamCommand,
 		createCommand,
 		unstuckCommand,
+		serverCommand,
 	}
 	return app
 }
@@ -70,7 +183,6 @@ func initApp() *cli.App {
 var app = initApp()
 
 func main() {
-	// eth.sendTransaction({from:personal.listAccounts[0], to:"0xb02A2EdA1b317FBd16760128836B0Ac59B560e9D", value: "100000000000000"})
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -88,35 +200,54 @@ func runAirdrop(c *cli.Context) error {
 	return nil
 }
 
-func spam(config *spammer.Config, spamFn spammer.Spam, airdropValue *big.Int) error {
-	// Make sure the accounts are unstuck before sending any transactions
-	spammer.Unstuck(config)
+func spam(config *spammer.Config, spamFn spammer.Spam, airdropValue *big.Int, cancel <-chan struct{}) error {
+	// Unstuck accounts before starting the spam process
+	if err := spammer.Unstuck(config); err != nil {
+		return fmt.Errorf("failed to unstuck accounts: %w", err)
+	}
+
 	for {
-		if err := spammer.Airdrop(config, airdropValue); err != nil {
-			return err
+		select {
+		case <-cancel:
+			// Exit the loop when the cancel signal is received
+			fmt.Println("Spam process stopped")
+			return nil
+		default:
+			// Perform the spam logic if no cancel signal
+			if err := spammer.Airdrop(config, airdropValue); err != nil {
+				return fmt.Errorf("failed to airdrop: %w", err)
+			}
+			if err := spamFn(config, config.GetFaucet(), nil); err != nil {
+				return fmt.Errorf("failed to spam transactions: %w", err)
+			}
+			time.Sleep(time.Duration(config.SlotTime) * time.Second)
 		}
-		spammer.SpamTransactions(config, spamFn)
-		time.Sleep(time.Duration(config.SlotTime) * time.Second)
 	}
 }
 
 func runBasicSpam(c *cli.Context) error {
 	config, err := spammer.NewConfigFromContext(c)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid config: %w", err)
 	}
 	airdropValue := new(big.Int).Mul(big.NewInt(int64((1+config.N)*1000000)), big.NewInt(params.GWei))
-	return spam(config, spammer.SendBasicTransactions, airdropValue)
+	cancel := make(chan struct{})
+	defer close(cancel)
+
+	return spam(config, spammer.SendBasicTransactions, airdropValue, cancel)
 }
 
 func runBlobSpam(c *cli.Context) error {
 	config, err := spammer.NewConfigFromContext(c)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid config: %w", err)
 	}
 	airdropValue := new(big.Int).Mul(big.NewInt(int64((1+config.N)*1000000)), big.NewInt(params.GWei))
-	airdropValue = airdropValue.Mul(airdropValue, big.NewInt(100))
-	return spam(config, spammer.SendBlobTransactions, airdropValue)
+	airdropValue.Mul(airdropValue, big.NewInt(100))
+	cancel := make(chan struct{})
+	defer close(cancel)
+
+	return spam(config, spammer.SendBlobTransactions, airdropValue, cancel)
 }
 
 func runCreate(c *cli.Context) error {

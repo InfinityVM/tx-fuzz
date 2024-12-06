@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	crand "crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"math/rand"
@@ -20,17 +21,17 @@ import (
 )
 
 type Config struct {
-	backend *rpc.Client // connection to the rpc provider
-
+	backend    *rpc.Client         // connection to the rpc provider
 	N          uint64              // number of transactions send per account
 	faucet     *ecdsa.PrivateKey   // private key of the faucet account
 	keys       []*ecdsa.PrivateKey // private keys of accounts
 	corpus     [][]byte            // optional corpus to use elements from
 	accessList bool                // whether to create accesslist transactions
-	gasLimit   uint64              // gas limit per transaction
+	GasLimit   uint64              // gas limit per transaction
 	SlotTime   uint64              // slot time in seconds
+	ListenPort string              // Server Listening Port
 
-	seed int64            // seed used for generating randomness
+	Seed int64            // seed used for generating randomness
 	mut  *mutator.Mutator // Mutator based on the seed
 }
 
@@ -54,8 +55,8 @@ func NewDefaultConfig(rpcAddr string, N uint64, accessList bool, rng *rand.Rand)
 		keys:       keys,
 		corpus:     [][]byte{},
 		accessList: accessList,
-		gasLimit:   30_000_000,
-		seed:       0,
+		GasLimit:   30_000_000,
+		Seed:       0,
 		mut:        mutator.NewMutator(rng),
 	}, nil
 }
@@ -68,8 +69,13 @@ func NewConfigFromContext(c *cli.Context) (*Config, error) {
 		return nil, err
 	}
 
+	SK, err := base64.StdEncoding.DecodeString(os.Getenv("TX_FUZZ_SK"))
+	if err != nil {
+		return nil, err
+	}
+
 	// Setup faucet
-	faucet := crypto.ToECDSAUnsafe(common.FromHex(txfuzz.SK))
+	faucet := crypto.ToECDSAUnsafe(common.FromHex(string(SK)))
 	if sk := c.String(flags.SkFlag.Name); sk != "" {
 		faucet, err = crypto.ToECDSA(common.FromHex(sk))
 		if err != nil {
@@ -128,12 +134,13 @@ func NewConfigFromContext(c *cli.Context) (*Config, error) {
 		N:          uint64(N),
 		faucet:     faucet,
 		accessList: !c.Bool(flags.NoALFlag.Name),
-		gasLimit:   uint64(gasLimit),
-		seed:       seed,
+		GasLimit:   uint64(gasLimit),
+		Seed:       seed,
 		keys:       keys,
 		corpus:     corpus,
 		mut:        mut,
 		SlotTime:   slotTime,
+		ListenPort: c.String(flags.ServerPortFlag.Name),
 	}, nil
 }
 
@@ -165,4 +172,8 @@ func readCorpusElements(path string) ([][]byte, error) {
 		corpus = append(corpus, b)
 	}
 	return corpus, nil
+}
+
+func (cfg Config) GetFaucet() *ecdsa.PrivateKey {
+	return cfg.faucet
 }
